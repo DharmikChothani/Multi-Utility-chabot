@@ -22,7 +22,7 @@ sentence-transformers==3.3.1
 
 # --- PDF handling & vector store ---
 pypdf==5.1.0
-faiss-cpu==1.9.0
+faiss-cpu==1.15.0
 
 # --- Web search tool (langchain-community imports `duckduckgo_search`, not `ddgs`) ---
 duckduckgo-search==8.1.1
