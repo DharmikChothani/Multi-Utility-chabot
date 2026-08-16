@@ -20,6 +20,7 @@ pypdf
 faiss-cpu
 
 # --- Tools & Utilities ---
+ddgs
 duckduckgo-search
 requests
 python-dotenv
