@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
-from langchain_huggingface import HuggingFaceEmbeddings
-
+from langchain_huggingface import HuggingFaceEndpointEmbeddings
 load_dotenv()
 
 # -------------------
@@ -14,6 +13,6 @@ llm = ChatGroq(
     temperature=0.5,
 )
 
-embeddings = HuggingFaceEmbeddings(
+embeddings = HuggingFaceEndpointEmbeddings(
     model_name="BAAI/bge-small-en-v1.5"
 )

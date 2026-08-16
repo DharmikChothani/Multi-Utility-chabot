@@ -1,41 +1,25 @@
 # --- UI ---
-streamlit==1.47.1
+streamlit
 
-# --- LangChain / LangGraph core ---
-langchain==0.3.27
-langchain-core==0.3.72
-langchain-community==0.3.27
-langchain-text-splitters==0.3.9
-langgraph==0.6.1
-langgraph-checkpoint==2.1.1
-langgraph-checkpoint-sqlite==2.0.11
-langgraph-prebuilt==0.6.1
-langgraph-sdk==0.2.0
-aiosqlite==0.21.0
+# --- LangChain & LangGraph ---
+langchain
+langchain-core
+langchain-community
+langchain-text-splitters
+langgraph
+langgraph-checkpoint-sqlite
+aiosqlite
 
-# --- LLM provider ---
-langchain-groq==0.3.2
+# --- LLM & Embeddings API ---
+langchain-groq
+langchain-huggingface
+huggingface_hub
 
-# --- Embeddings (HuggingFace) ---
-langchain-huggingface==0.1.2
-sentence-transformers
-
-# --- PDF handling & vector store ---
-pypdf==5.1.0
+# --- Document Handling & Vector Store ---
+pypdf
 faiss-cpu
 
-# --- Web search tool (langchain-community imports `duckduckgo_search`, not `ddgs`) ---
-duckduckgo-search==8.1.1
-
-# --- HTTP / config ---
-requests==2.32.4
-python-dotenv==1.1.1
-
-# --- Supporting libs (already pulled in transitively, pinned for reproducibility) ---
-pydantic==2.11.7
-pydantic_core==2.33.2
-tenacity==9.1.2
-PyYAML==6.0.2
-jsonschema==4.25.0
-numpy==2.3.2
-pandas==2.3.1
+# --- Tools & Utilities ---
+duckduckgo-search
+requests
+python-dotenv
