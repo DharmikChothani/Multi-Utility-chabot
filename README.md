@@ -19,7 +19,7 @@ A Streamlit chat application backed by a [LangGraph](https://langchain-ai.github
 ```
 .
 ├── app.py                          # Streamlit UI
-└── langgraph_rag_backend/          # LangGraph agent + RAG backend
+└── backend/          # LangGraph agent + RAG backend
     ├── __init__.py                 # public API (chatbot, ingest_pdf, ...)
     ├── config.py                   # .env loading, LLM + embeddings init
     ├── store.py                    # in-memory per-thread retriever/metadata store
