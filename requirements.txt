@@ -18,11 +18,11 @@ langchain-groq==0.3.2
 
 # --- Embeddings (HuggingFace) ---
 langchain-huggingface==0.1.2
-sentence-transformers==3.3.1
+sentence-transformers
 
 # --- PDF handling & vector store ---
 pypdf==5.1.0
-faiss-cpu==1.15.0
+faiss-cpu
 
 # --- Web search tool (langchain-community imports `duckduckgo_search`, not `ddgs`) ---
 duckduckgo-search==8.1.1
