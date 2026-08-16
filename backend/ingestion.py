@@ -4,8 +4,7 @@ import io
 import os
 import tempfile
 from typing import Optional
-
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from pypdf import PdfReader
