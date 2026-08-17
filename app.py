@@ -43,7 +43,7 @@ if st.session_state.user is None:
 # 1. LOGIN / REGISTER — block everything else until authenticated
 # =========================================================
 def login_screen() -> None:
-    st.title("💬 PDF Chatbot — Sign in")
+    st.title("💬 Chatbot — Sign in")
 
     tab_login, tab_register = st.tabs(["Log in", "Create account"])
 
