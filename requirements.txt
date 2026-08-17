@@ -24,3 +24,4 @@ ddgs
 duckduckgo-search
 requests
 python-dotenv
+werkzeug
