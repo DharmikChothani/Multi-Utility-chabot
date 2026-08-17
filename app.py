@@ -13,8 +13,12 @@ from backend.auth import (
 from backend.graph import chatbot, delete_thread, retrieve_all_threads, user_owns_thread
 from backend.ingestion import ingest_pdf
 from backend.store import delete_retriever, thread_document_metadata, thread_has_document
+from dotenv import load_dotenv
+
+load_dotenv()
 
 st.set_page_config(page_title="Mutlti Utility Chatbot", page_icon="🛠️", layout="wide")
+
 
 # =========================================================
 # Session state defaults
