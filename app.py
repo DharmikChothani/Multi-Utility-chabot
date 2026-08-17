@@ -1,354 +1,243 @@
-import uuid
+from __future__ import annotations
+
 import streamlit as st
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from backend.graph import chatbot, retrieve_all_threads
+from backend.auth import (
+    create_session,
+    delete_session,
+    make_thread_id,
+    register_user,
+    validate_session,
+    verify_user,
+)
+from backend.graph import chatbot, delete_thread, retrieve_all_threads, user_owns_thread
 from backend.ingestion import ingest_pdf
-from backend.store import thread_document_metadata
+from backend.store import delete_retriever, thread_document_metadata, thread_has_document
 
-# =========================== Page Config ===========================
-st.set_page_config(
-    page_title="Multi Utility Chatbot",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="Mutlti Utility Chatbot", page_icon="🛠️", layout="wide")
 
-# =========================== Custom Styling ===========================
-st.markdown(
-    """
-    <style>
-        /* Overall app background */
-        .stApp {
-            background: linear-gradient(180deg, #0f1117 0%, #14161f 100%);
-        }
-
-        /* Main title */
-        h1 {
-            font-weight: 700 !important;
-            letter-spacing: -0.02em;
-            padding-bottom: 0 !important;
-        }
-
-        /* Sidebar */
-        section[data-testid="stSidebar"] {
-            background: #12141c;
-            border-right: 1px solid rgba(255,255,255,0.06);
-        }
-        section[data-testid="stSidebar"] .stButton button {
-            border-radius: 10px;
-            border: 1px solid rgba(255,255,255,0.08);
-            transition: all 0.15s ease-in-out;
-        }
-        section[data-testid="stSidebar"] .stButton button:hover {
-            border-color: #6c5ce7;
-            color: #a29bfe;
-        }
-
-        /* New chat button emphasis */
-        div[data-testid="stSidebar"] div:first-child button[kind="secondary"] {
-            font-weight: 600;
-        }
-
-        /* Chat bubbles */
-        div[data-testid="stChatMessage"] {
-            border-radius: 14px;
-            padding: 0.4rem 0.6rem;
-            margin-bottom: 0.4rem;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-        div[data-testid="stChatMessage"]:has(div[data-testid="chatAvatarIcon-user"]) {
-            background: rgba(108, 92, 231, 0.10);
-        }
-        div[data-testid="stChatMessage"]:has(div[data-testid="chatAvatarIcon-assistant"]) {
-            background: rgba(255,255,255,0.03);
-        }
-
-        /* Chat input bar */
-        div[data-testid="stChatInput"] textarea {
-            border-radius: 12px;
-        }
-
-        /* Sidebar subheaders */
-        section[data-testid="stSidebar"] h3 {
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: #9aa0b4;
-            margin-top: 1rem;
-        }
-
-        /* Badge-style thread id */
-        .thread-badge {
-            display: inline-block;
-            background: rgba(108, 92, 231, 0.15);
-            color: #a29bfe;
-            border-radius: 999px;
-            padding: 2px 10px;
-            font-size: 0.72rem;
-            font-family: monospace;
-        }
-
-        /* Active thread highlight */
-        .active-thread button {
-            border-color: #6c5ce7 !important;
-            background: rgba(108, 92, 231, 0.12) !important;
-            color: #a29bfe !important;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 4rem 1rem;
-            color: #7b8196;
-        }
-        .empty-state .big {
-            font-size: 2.4rem;
-            margin-bottom: 0.5rem;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# =========================== Utilities ===========================
-def generate_thread_id():
-    return uuid.uuid4()
-
-
-def reset_chat():
-    thread_id = generate_thread_id()
-    st.session_state["thread_id"] = thread_id
-    add_thread(thread_id)
-    st.session_state["message_history"] = []
-
-
-def add_thread(thread_id):
-    if thread_id not in st.session_state["chat_threads"]:
-        st.session_state["chat_threads"].append(thread_id)
-
-
-def delete_thread(thread_id):
-    """Remove a thread from session state and reset if it is currently active."""
-    str_tid = str(thread_id)
-    if thread_id in st.session_state["chat_threads"]:
-        st.session_state["chat_threads"].remove(thread_id)
-
-    st.session_state.get("thread_titles", {}).pop(str_tid, None)
-    st.session_state.get("ingested_docs", {}).pop(str_tid, None)
-
-    # If deleting the current active thread, start a fresh conversation
-    if str(st.session_state["thread_id"]) == str_tid:
-        reset_chat()
-    st.rerun()
-
-
-def load_conversation(thread_id):
-    state = chatbot.get_state(config={"configurable": {"thread_id": str(thread_id)}})
-    return state.values.get("messages", [])
-
-
-def get_thread_label(thread_id, max_chars=22):
-    """Retrieve the user's last question to use as a thread title."""
-    str_tid = str(thread_id)
-    if str_tid in st.session_state.get("thread_titles", {}):
-        return st.session_state["thread_titles"][str_tid]
-
-    messages = load_conversation(thread_id)
-    user_messages = [msg for msg in messages if isinstance(msg, HumanMessage)]
-
-    if user_messages:
-        content = user_messages[-1].content
-        label = (content[:max_chars] + "…") if len(content) > max_chars else content
-    else:
-        label = f"Chat {str_tid[:6]}"
-
-    st.session_state.setdefault("thread_titles", {})[str_tid] = label
-    return label
-
-
-# ======================= Session Initialization ===================
-if "message_history" not in st.session_state:
-    st.session_state["message_history"] = []
-
+# =========================================================
+# Session state defaults
+# =========================================================
+if "user" not in st.session_state:
+    st.session_state.user = None
 if "thread_id" not in st.session_state:
-    st.session_state["thread_id"] = generate_thread_id()
+    st.session_state.thread_id = None
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "pending_delete" not in st.session_state:
+    st.session_state.pending_delete = None  # thread_id awaiting delete confirmation
 
-if "chat_threads" not in st.session_state:
-    st.session_state["chat_threads"] = retrieve_all_threads()
+# ---- Restore login from a session token in the URL, if present ----
+# This is what keeps a user logged in across a browser refresh: on login we
+# stash a random token in the URL's query params, and on every rerun (which
+# includes a hard refresh) we check that token against the sessions table.
+if st.session_state.user is None:
+    token_from_url = st.query_params.get("session")
+    restored_user = validate_session(token_from_url)
+    if restored_user:
+        st.session_state.user = restored_user
 
-if "ingested_docs" not in st.session_state:
-    st.session_state["ingested_docs"] = {}
 
-if "thread_titles" not in st.session_state:
-    st.session_state["thread_titles"] = {}
+# =========================================================
+# 1. LOGIN / REGISTER — block everything else until authenticated
+# =========================================================
+def login_screen() -> None:
+    st.title("💬 PDF Chatbot — Sign in")
 
-add_thread(st.session_state["thread_id"])
+    tab_login, tab_register = st.tabs(["Log in", "Create account"])
 
-thread_key = str(st.session_state["thread_id"])
-thread_docs = st.session_state["ingested_docs"].setdefault(thread_key, {})
-threads = st.session_state["chat_threads"][::-1]
-selected_thread = None
+    with tab_login:
+        username = st.text_input("Username", key="login_username")
+        password = st.text_input("Password", type="password", key="login_password")
+        if st.button("Log in", type="primary"):
+            if verify_user(username, password):
+                clean_username = username.strip()
+                st.session_state.user = clean_username
+                st.session_state.thread_id = None
+                st.session_state.messages = []
+                # Issue a session token and persist it in the URL so a
+                # refresh doesn't log the user back out.
+                token = create_session(clean_username)
+                st.query_params["session"] = token
+                st.rerun()
+            else:
+                st.error("Invalid username or password.")
 
-# ============================ Sidebar ============================
-st.sidebar.markdown("## 🧠 Multi Utility Chatbot")
-st.sidebar.markdown(
-    f'<span class="thread-badge">Thread {thread_key[:8]}</span>',
-    unsafe_allow_html=True,
-)
-st.sidebar.write("")
+    with tab_register:
+        new_username = st.text_input("Choose a username", key="reg_username")
+        new_password = st.text_input(
+            "Choose a password", type="password", key="reg_password"
+        )
+        if st.button("Create account"):
+            if len(new_password or "") < 6:
+                st.error("Password must be at least 6 characters.")
+            elif register_user(new_username, new_password):
+                st.success("Account created. Please log in.")
+            else:
+                st.error("That username is already taken.")
 
-if st.sidebar.button("➕  New Chat", use_container_width=True, type="primary"):
-    reset_chat()
-    st.rerun()
 
-st.sidebar.markdown("### 📄 Document")
+if st.session_state.user is None:
+    login_screen()
+    st.stop()
 
-if thread_docs:
-    latest_doc = list(thread_docs.values())[-1]
-    st.sidebar.success(
-        f"**{latest_doc.get('filename')}**\n\n"
-        f"{latest_doc.get('chunks')} chunks · {latest_doc.get('documents')} pages",
-        icon="✅",
-    )
-else:
-    st.sidebar.info("No PDF indexed yet for this chat.", icon="📭")
+user = st.session_state.user
 
-uploaded_pdf = st.sidebar.file_uploader(
-    "Upload a PDF for this chat", type=["pdf"], label_visibility="collapsed"
-)
-if uploaded_pdf:
-    if uploaded_pdf.name in thread_docs:
-        st.sidebar.info(f"`{uploaded_pdf.name}` already processed for this chat.")
+# Ensure there is always an active thread before the sidebar renders,
+# since the sidebar's PDF section is scoped to the current thread.
+if st.session_state.thread_id is None:
+    st.session_state.thread_id = make_thread_id(user)
+
+thread_id = st.session_state.thread_id
+
+# Defense in depth: never let a user act on a thread_id that isn't theirs,
+# even if one somehow ended up in session_state (e.g. via a stale URL/param).
+if not user_owns_thread(user, thread_id):
+    st.error("You don't have access to that chat.")
+    st.stop()
+
+# =========================================================
+# 2. SIDEBAR — logout, PDF upload for the active chat, chat history
+# =========================================================
+with st.sidebar:
+    st.write(f"Logged in as **{user}**")
+    if st.button("Log out"):
+        delete_session(st.query_params.get("session"))
+        st.query_params.clear()
+        st.session_state.user = None
+        st.session_state.thread_id = None
+        st.session_state.messages = []
+        st.rerun()
+
+    st.divider()
+
+    if st.button("➕ New chat", use_container_width=True):
+        st.session_state.thread_id = make_thread_id(user)
+        st.session_state.messages = []
+        st.rerun()
+
+    st.divider()
+
+    # ---- PDF upload / status for the currently active chat ----
+    # Only one document lives per thread at a time. Uploading a new PDF
+    # here always replaces whatever was previously indexed for this
+    # thread — there's no separate "replace" toggle or "ingest" button;
+    # a file appearing in the uploader is itself the trigger to index it.
+    st.subheader("📄 Document")
+    has_doc = thread_has_document(thread_id)
+
+    if has_doc:
+        meta = thread_document_metadata(thread_id)
+        st.success(f"**{meta.get('filename', 'Document')}**")
+        st.caption(f"{meta.get('documents', '?')} pages · {meta.get('chunks', '?')} chunks")
+        st.caption("Uploading a new PDF below will replace this document.")
     else:
-        with st.sidebar.status("Indexing PDF…", expanded=True) as status_box:
-            summary = ingest_pdf(
-                uploaded_pdf.getvalue(),
-                thread_id=thread_key,
-                filename=uploaded_pdf.name,
-            )
-            thread_docs[uploaded_pdf.name] = summary
-            status_box.update(label="✅ PDF indexed", state="complete", expanded=False)
+        st.caption("No document indexed for this chat yet.")
 
-st.sidebar.markdown("### 💬 Past Conversations")
-if not threads:
-    st.sidebar.caption("No past conversations yet — start chatting!")
-else:
-    for tid in threads:
-        label = get_thread_label(tid)
-        is_active = str(tid) == thread_key
-        icon = "🟣" if is_active else "💬"
-
-        row_class = "active-thread" if is_active else ""
-        st.sidebar.markdown(f'<div class="{row_class}">', unsafe_allow_html=True)
-        col1, col2 = st.sidebar.columns([0.82, 0.18])
-        with col1:
-            if st.button(
-                f"{icon} {label}",
-                key=f"side-thread-{tid}",
-                use_container_width=True,
-            ):
-                selected_thread = tid
-        with col2:
-            if st.button("🗑️", key=f"del-thread-{tid}", help="Delete chat"):
-                delete_thread(tid)
-        st.sidebar.markdown("</div>", unsafe_allow_html=True)
-
-# ============================ Main Layout ========================
-st.title("🧠 Multi Utility Chatbot")
-st.caption("Chat freely, or upload a PDF in the sidebar to ask questions about it.")
-st.divider()
-
-# Empty state when no messages yet
-if not st.session_state["message_history"]:
-    st.markdown(
-        """
-        <div class="empty-state">
-            <div class="big">💬</div>
-            <div><strong>Start a conversation</strong></div>
-            <div>Ask a question below, or upload a document to chat with it.</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    pdf_file = st.file_uploader(
+        "Upload PDF", type=["pdf"], key=f"uploader_{thread_id}", label_visibility="collapsed"
     )
+    # Track the last file we auto-ingested for this thread so a rerun
+    # (e.g. from switching threads or sending a chat message) doesn't
+    # re-trigger ingestion of the same file over and over.
+    last_ingested_key = f"last_ingested_{thread_id}"
+    if pdf_file is not None and st.session_state.get(last_ingested_key) != pdf_file.file_id:
+        with st.spinner("Indexing document..."):
+            try:
+                summary = ingest_pdf(
+                    pdf_file.getvalue(), thread_id=thread_id, filename=pdf_file.name
+                )
+                st.session_state[last_ingested_key] = pdf_file.file_id
+                st.success(
+                    f"Indexed '{summary['filename']}' "
+                    f"({summary['documents']} pages, {summary['chunks']} chunks)."
+                )
+                st.rerun()
+            except ValueError as e:
+                st.error(str(e))
 
-# Render message history
-AVATARS = {"user": "🧑", "assistant": "🤖"}
-for message in st.session_state["message_history"]:
-    with st.chat_message(message["role"], avatar=AVATARS.get(message["role"])):
-        st.markdown(message["content"])
+    st.divider()
 
-user_input = st.chat_input("Ask about your document or use tools…")
+    # ---- This user's own chat history ----
+    st.subheader("Your chats")
+    # retrieve_all_threads(user) only returns threads namespaced to this user —
+    # this is what keeps histories private between accounts.
+    my_threads = sorted(retrieve_all_threads(user_id=user), reverse=True)
 
+    if not my_threads:
+        st.caption("No chats yet — start a new one above.")
+
+    for tid in my_threads:
+        short_id = tid.split("::", 1)[-1][:8]
+        is_active = tid == thread_id
+        label = f"{'🟢' if is_active else '🗂️'} {short_id}"
+        if thread_has_document(tid):
+            fname = thread_document_metadata(tid).get("filename")
+            if fname:
+                label += f" — {fname}"
+
+        if st.session_state.pending_delete == tid:
+            # ---- Confirmation step for this specific chat ----
+            st.warning(f"Delete this chat ({short_id})? This can't be undone.")
+            confirm_col, cancel_col = st.columns(2)
+            with confirm_col:
+                if st.button("✅ Delete", key=f"confirm_del_{tid}", use_container_width=True):
+                    delete_thread(tid)
+                    delete_retriever(tid)
+                    st.session_state.pending_delete = None
+                    if is_active:
+                        st.session_state.thread_id = None
+                        st.session_state.messages = []
+                    st.rerun()
+            with cancel_col:
+                if st.button("✖️ Cancel", key=f"cancel_del_{tid}", use_container_width=True):
+                    st.session_state.pending_delete = None
+                    st.rerun()
+        else:
+            row_col, del_col = st.columns([5, 1])
+            with row_col:
+                if st.button(
+                    label,
+                    key=f"thread_{tid}",
+                    use_container_width=True,
+                    disabled=is_active,
+                ):
+                    st.session_state.thread_id = tid
+                    # Reload message history for this thread from the checkpointer
+                    state = chatbot.get_state(config={"configurable": {"thread_id": tid}})
+                    st.session_state.messages = (
+                        state.values.get("messages", []) if state else []
+                    )
+                    st.rerun()
+            with del_col:
+                if st.button("🗑️", key=f"del_{tid}", help="Delete this chat"):
+                    st.session_state.pending_delete = tid
+                    st.rerun()
+
+# =========================================================
+# 3. MAIN AREA — chat only
+# =========================================================
+st.title("💬 Multi-Utility-Chatbot")
+
+for msg in st.session_state.messages:
+    role = "user" if msg.type == "human" else "assistant"
+    if getattr(msg, "content", None):
+        with st.chat_message(role):
+            st.markdown(msg.content)
+
+user_input = st.chat_input("Ask something...")
 if user_input:
-    # Update title cache with current query
-    truncated_title = (user_input[:22] + "…") if len(user_input) > 22 else user_input
-    st.session_state["thread_titles"][thread_key] = truncated_title
-
-    st.session_state["message_history"].append({"role": "user", "content": user_input})
-    with st.chat_message("user", avatar=AVATARS["user"]):
+    with st.chat_message("user"):
         st.markdown(user_input)
 
-    CONFIG = {
-        "configurable": {"thread_id": thread_key},
-        "metadata": {"thread_id": thread_key},
-        "run_name": "chat_turn",
-    }
-
-    with st.chat_message("assistant", avatar=AVATARS["assistant"]):
-        status_holder = {"box": None}
-
-        def ai_only_stream():
-            for message_chunk, _ in chatbot.stream(
-                {"messages": [HumanMessage(content=user_input)]},
-                config=CONFIG,
-                stream_mode="messages",
-            ):
-                if isinstance(message_chunk, ToolMessage):
-                    tool_name = getattr(message_chunk, "name", "tool")
-                    if status_holder["box"] is None:
-                        status_holder["box"] = st.status(
-                            f"🔧 Using `{tool_name}` …", expanded=True
-                        )
-                    else:
-                        status_holder["box"].update(
-                            label=f"🔧 Using `{tool_name}` …",
-                            state="running",
-                            expanded=True,
-                        )
-
-                if isinstance(message_chunk, AIMessage):
-                    yield message_chunk.content
-
-        ai_message = st.write_stream(ai_only_stream())
-
-        if status_holder["box"] is not None:
-            status_holder["box"].update(
-                label="✅ Tool finished", state="complete", expanded=False
+    config = {"configurable": {"thread_id": thread_id}}
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            result = chatbot.invoke(
+                {"messages": [{"role": "user", "content": user_input}]}, config=config
             )
+            reply = result["messages"][-1]
+            st.markdown(reply.content)
 
-    st.session_state["message_history"].append(
-        {"role": "assistant", "content": ai_message}
-    )
-
-    doc_meta = thread_document_metadata(thread_key)
-    if doc_meta:
-        st.caption(
-            f"📎 Document indexed: **{doc_meta.get('filename')}** "
-            f"(chunks: {doc_meta.get('chunks')}, pages: {doc_meta.get('documents')})"
-        )
-
-st.divider()
-
-# Handle thread switching
-if selected_thread:
-    st.session_state["thread_id"] = selected_thread
-    messages = load_conversation(selected_thread)
-
-    temp_messages = []
-    for msg in messages:
-        role = "user" if isinstance(msg, HumanMessage) else "assistant"
-        temp_messages.append({"role": role, "content": msg.content})
-
-    st.session_state["message_history"] = temp_messages
-    st.session_state["ingested_docs"].setdefault(str(selected_thread), {})
-    st.rerun()
+    st.session_state.messages = result["messages"]

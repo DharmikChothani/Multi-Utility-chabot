@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import requests
 from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 from .config import llm
@@ -60,11 +59,24 @@ def get_stock_price(symbol: str) -> dict:
 
 
 @tool
-def rag_tool(query: str, thread_id: Optional[str] = None) -> dict:
+def rag_tool(query: str, config: RunnableConfig) -> dict:
     """
     Retrieve relevant information from the uploaded PDF for this chat thread.
-    Always include the thread_id when calling this tool.
+    Call this for ANY question about the uploaded document's content,
+    including vague requests like "summarize the document" or "what's in
+    this PDF" — pass the user's request (or a broad query such as "summary
+    of the document") as `query`. Do not ask the user to clarify before
+    calling this tool.
     """
+    # `config` is injected automatically by LangGraph's ToolNode from the
+    # graph run's RunnableConfig — it is NOT part of the tool's schema the
+    # LLM sees, and the model never has to supply it. This removes the
+    # previous failure mode where the model had to correctly transcribe a
+    # "<username>::<uuid>" thread_id string as an argument; any drop or
+    # mismatch there caused get_retriever() to silently miss and return
+    # None, even when a document was indexed.
+    thread_id = (config or {}).get("configurable", {}).get("thread_id")
+
     retriever = get_retriever(thread_id)
     if retriever is None:
         return {

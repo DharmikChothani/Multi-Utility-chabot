@@ -18,6 +18,9 @@ def ingest_pdf(file_bytes: bytes, thread_id: str, filename: Optional[str] = None
     """
     Build a FAISS retriever for the uploaded PDF and store it for the thread.
 
+    `thread_id` should be the namespaced id ("<username>::<id>") so the
+    resulting retriever is only ever reachable by its owner.
+
     Returns a summary dict that can be surfaced in the UI.
     """
     if not file_bytes:
@@ -57,7 +60,7 @@ def ingest_pdf(file_bytes: bytes, thread_id: str, filename: Optional[str] = None
             "documents": len(docs),
             "chunks": len(chunks),
         }
-        set_retriever(thread_id, retriever, summary)
+        set_retriever(thread_id, retriever, summary, vector_store=vector_store)
 
         return summary
     finally:
